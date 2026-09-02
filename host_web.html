@@ -95,20 +95,26 @@ async function disconnect() {
   document.getElementById("btnDisconnect").disabled = true;
 }
 
-async function sendCmd(cmd, data) {
-  if (!characteristic) { log("未连接，指令未发送"); return; }
-  try {
-    await characteristic.writeValue(buildFrame(cmd, data));   // 有应答写入：JDY-23 FFE1 必须此模式
-    log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
-  } catch (e) { log("发送失败: " + e.message); }
+/* 写操作串行化：链式 Promise，避免 "GATT operation already in progress" */
+let writeChain = Promise.resolve();
+function enqueueWrite(frame) {
+  writeChain = writeChain
+    .then(() => characteristic.writeValue(frame))
+    .catch(e => log("发送失败: " + e.message));
 }
 
-/* 滑条节流：100ms 只发一次最新值，拖动再快也不积压 */
+async function sendCmd(cmd, data) {
+  if (!characteristic) { log("未连接，指令未发送"); return; }
+  enqueueWrite(buildFrame(cmd, data));
+  log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
+}
+
+/* 滑条节流：150ms 只发一次最新值，拖动再快也不积压 */
 let pendingDuty = null, pendingServo = null;
 setInterval(() => {
   if (pendingDuty !== null) { const v = pendingDuty; pendingDuty = null; sendCmd(0x01, [v]); }
   if (pendingServo !== null) { const v = pendingServo; pendingServo = null; sendCmd(0x02, [v]); }
-}, 100);
+}, 150);
 
 function onNotify(ev) {
   const dv = ev.target.value;
