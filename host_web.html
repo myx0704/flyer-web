@@ -98,12 +98,7 @@ async function disconnect() {
 async function sendCmd(cmd, data) {
   if (!characteristic) { log("未连接，指令未发送"); return; }
   try {
-    const frame = buildFrame(cmd, data);
-    try {
-      await characteristic.writeValueWithoutResponse(frame);   // 无应答：更快
-    } catch (e2) {
-      await characteristic.writeValue(frame);                  // 回退：有应答
-    }
+    await characteristic.writeValue(buildFrame(cmd, data));   // 有应答写入：JDY-23 FFE1 必须此模式
     log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
   } catch (e) { log("发送失败: " + e.message); }
 }
