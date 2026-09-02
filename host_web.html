@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>扑翼机地面站（手机上位机）</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 12px; background: #f5f7fa; }
+  h1 { font-size: 18px; margin: 8px 0; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; margin: 10px 0; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  button { padding: 10px 16px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 15px; }
+  button:disabled { background: #93a5bd; }
+  .btn-row { display: flex; gap: 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+  .row label { flex: 1; }
+  input[type=range] { flex: 2; }
+  .val { width: 48px; text-align: right; font-weight: bold; }
+  #log { background: #0f172a; color: #7dd3fc; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 8px; height: 140px; overflow-y: auto; }
+  .kv { display: flex; justify-content: space-between; margin: 4px 0; }
+</style>
+</head>
+<body>
+<h1>🦅 扑翼机地面站（手机上位机）</h1>
+
+<div class="card">
+  <div class="btn-row">
+    <button id="btnConnect">连接 JDY-23</button>
+    <button id="btnDisconnect" disabled>断开</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row"><label>电机油门 (0~100)</label><input type="range" id="sldDuty" min="0" max="100" value="80"><span class="val" id="valDuty">80</span></div>
+  <div class="row"><label>舵机位置 (0~100)</label><input type="range" id="sldServo" min="0" max="100" value="50"><span class="val" id="valServo">50</span></div>
+  <div class="btn-row" style="margin-top:10px;">
+    <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkKill"> 急停</label>
+    <button id="btnQuery" style="background:#0ea5e9;">查询状态</button>
+  </div>
+</div>
+
+<div class="card">
+  <b>实时状态</b>
+  <div class="kv"><span>油门</span><span id="stDuty">--</span></div>
+  <div class="kv"><span>舵机</span><span id="stServo">--</span></div>
+  <div class="kv"><span>急停</span><span id="stKill">--</span></div>
+  <div class="kv"><span>收到字节</span><span id="stCnt">--</span></div>
+</div>
+
+<div class="card">
+  <b>日志</b>
+  <div id="log"></div>
+</div>
+
+<script>
+const FFE0 = "0000ffe0-0000-1000-8000-00805f9b34fb";
+const FFE1 = "0000ffe1-0000-1000-8000-00805f9b34fb";
+
+let device = null, characteristic = null, rxBuf = new Uint8Array(0);
+
+function log(s) {
+  const d = document.getElementById("log");
+  d.innerHTML += `\n[${new Date().toLocaleTimeString()}] ${s}`;
+  d.scrollTop = d.scrollHeight;
+}
+
+function buildFrame(cmd, data = []) {
+  const body = [0xAA, 0x55, cmd, data.length, ...data];
+  let ck = 0;
+  for (const b of body) ck ^= b;
+  return new Uint8Array([...body, ck]);
+}
+
+async function connect() {
+  try {
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [FFE0] });
+    log("找到设备: " + (device.name || "?"));
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(FFE0);
+    characteristic = await service.getCharacteristic(FFE1);
+    await characteristic.startNotifications();
+    characteristic.addEventListener("characteristicvaluechanged", onNotify);
+    document.getElementById("btnConnect").disabled = true;
+    document.getElementById("btnDisconnect").disabled = false;
+    log("已连接，FFE1 通知已开启 ✓");
+    sendCmd(0x10, []);   // 立即查询一次状态
+  } catch (e) {
+    log("连接失败: " + e.message);
+  }
+}
+
+async function disconnect() {
+  try { if (device && device.gatt.connected) await device.gatt.disconnect(); } catch (e) {}
+  log("已断开");
+  document.getElementById("btnConnect").disabled = false;
+  document.getElementById("btnDisconnect").disabled = true;
+}
+
+async function sendCmd(cmd, data) {
+  if (!characteristic) { log("未连接，指令未发送"); return; }
+  try {
+    await characteristic.writeValue(buildFrame(cmd, data));
+    log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
+  } catch (e) { log("发送失败: " + e.message); }
+}
+
+function onNotify(ev) {
+  const dv = ev.target.value;
+  const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+  const merged = new Uint8Array(rxBuf.length + bytes.length);
+  merged.set(rxBuf); merged.set(bytes, rxBuf.length);
+  rxBuf = merged;
+  // 解析帧 AA 55 ...
+  while (true) {
+    let idx = -1;
+    for (let i = 0; i < rxBuf.length - 1; i++) {
+      if (rxBuf[i] === 0xAA && rxBuf[i+1] === 0x55) { idx = i; break; }
+    }
+    if (idx < 0) { rxBuf = new Uint8Array(0); return; }
+    if (idx > 0) rxBuf = rxBuf.slice(idx);
+    if (rxBuf.length < 4) return;
+    const cmd = rxBuf[2], ln = rxBuf[3];
+    if (rxBuf.length < 4 + ln + 1) return;
+    let ck = 0;
+    for (let i = 0; i < 4 + ln; i++) ck ^= rxBuf[i];
+    const data = Array.from(rxBuf.slice(4, 4 + ln));
+    const frame = rxBuf.slice(0, 4 + ln + 1);
+    rxBuf = rxBuf.slice(4 + ln + 1);
+    if (ck !== frame[4 + ln]) { log("校验失败 0x" + cmd.toString(16)); continue; }
+    if (cmd === 0x81 && data.length >= 4) {
+      document.getElementById("stDuty").textContent = data[0];
+      document.getElementById("stServo").textContent = data[1];
+      document.getElementById("stKill").textContent = data[2] ? "停止" : "运行";
+      document.getElementById("stCnt").textContent = data[3];
+    } else {
+      log(`收到 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
+    }
+  }
+}
+
+document.getElementById("btnConnect").onclick = connect;
+document.getElementById("btnDisconnect").onclick = disconnect;
+document.getElementById("sldDuty").oninput = e => {
+  document.getElementById("valDuty").textContent = e.target.value;
+  sendCmd(0x01, [parseInt(e.target.value)]);
+};
+document.getElementById("sldServo").oninput = e => {
+  document.getElementById("valServo").textContent = e.target.value;
+  sendCmd(0x02, [parseInt(e.target.value)]);
+};
+document.getElementById("chkKill").onchange = e => sendCmd(0x03, [e.target.checked ? 1 : 0]);
+document.getElementById("btnQuery").onclick = () => sendCmd(0x10, []);
+log("页面加载完成，点【连接】开始");
+</script>
+</body>
+</html>
