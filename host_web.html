@@ -40,7 +40,8 @@
 
 <div class="card">
   <b>实时状态</b>
-  <div class="kv"><span>油门</span><span id="stDuty">--</span></div>
+  <div class="kv"><span>油门</span><span id="stThrottle">--</span></div>
+  <div class="kv"><span>占空比</span><span id="stDuty">--</span></div>
   <div class="kv"><span>舵机</span><span id="stServo">--</span></div>
   <div class="kv"><span>急停</span><span id="stKill">--</span></div>
   <div class="kv"><span>收到字节</span><span id="stCnt">--</span></div>
@@ -139,11 +140,12 @@ function onNotify(ev) {
     const frame = rxBuf.slice(0, 4 + ln + 1);
     rxBuf = rxBuf.slice(4 + ln + 1);
     if (ck !== frame[4 + ln]) { log("校验失败 0x" + cmd.toString(16)); continue; }
-    if (cmd === 0x81 && data.length >= 4) {
-      document.getElementById("stDuty").textContent = data[0];
-      document.getElementById("stServo").textContent = data[1];
-      document.getElementById("stKill").textContent = data[2] ? "停止" : "运行";
-      document.getElementById("stCnt").textContent = data[3];
+    if (cmd === 0x81 && data.length >= 5) {
+      document.getElementById("stThrottle").textContent = data[0];
+      document.getElementById("stDuty").textContent = data[1];
+      document.getElementById("stServo").textContent = data[2];
+      document.getElementById("stKill").textContent = data[3] ? "停止" : "运行";
+      document.getElementById("stCnt").textContent = data[4];
     } else {
       log(`收到 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
     }
