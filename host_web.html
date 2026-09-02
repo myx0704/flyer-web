@@ -98,10 +98,22 @@ async function disconnect() {
 async function sendCmd(cmd, data) {
   if (!characteristic) { log("未连接，指令未发送"); return; }
   try {
-    await characteristic.writeValue(buildFrame(cmd, data));
+    const frame = buildFrame(cmd, data);
+    try {
+      await characteristic.writeValueWithoutResponse(frame);   // 无应答：更快
+    } catch (e2) {
+      await characteristic.writeValue(frame);                  // 回退：有应答
+    }
     log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
   } catch (e) { log("发送失败: " + e.message); }
 }
+
+/* 滑条节流：100ms 只发一次最新值，拖动再快也不积压 */
+let pendingDuty = null, pendingServo = null;
+setInterval(() => {
+  if (pendingDuty !== null) { const v = pendingDuty; pendingDuty = null; sendCmd(0x01, [v]); }
+  if (pendingServo !== null) { const v = pendingServo; pendingServo = null; sendCmd(0x02, [v]); }
+}, 100);
 
 function onNotify(ev) {
   const dv = ev.target.value;
@@ -141,11 +153,11 @@ document.getElementById("btnConnect").onclick = connect;
 document.getElementById("btnDisconnect").onclick = disconnect;
 document.getElementById("sldDuty").oninput = e => {
   document.getElementById("valDuty").textContent = e.target.value;
-  sendCmd(0x01, [parseInt(e.target.value)]);
+  pendingDuty = parseInt(e.target.value);
 };
 document.getElementById("sldServo").oninput = e => {
   document.getElementById("valServo").textContent = e.target.value;
-  sendCmd(0x02, [parseInt(e.target.value)]);
+  pendingServo = parseInt(e.target.value);
 };
 document.getElementById("chkKill").onchange = e => sendCmd(0x03, [e.target.checked ? 1 : 0]);
 document.getElementById("btnQuery").onclick = () => sendCmd(0x10, []);
