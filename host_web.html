@@ -32,6 +32,7 @@
 <div class="card">
   <div class="row"><label>电机油门 (0~100)</label><input type="range" id="sldDuty" min="0" max="100" value="0"><span class="val" id="valDuty">0</span></div>
   <div class="row"><label>舵机位置 (0~100)</label><input type="range" id="sldServo" min="0" max="100" value="50"><span class="val" id="valServo">50</span></div>
+  <div class="row"><label>升降位置 (0~100)</label><input type="range" id="sldLift" min="0" max="100" value="50"><span class="val" id="valLift">50</span></div>
   <div class="btn-row" style="margin-top:10px;">
     <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkKill"> 急停</label>
     <button id="btnQuery" style="background:#0ea5e9;">查询状态</button>
@@ -40,11 +41,16 @@
 
 <div class="card">
   <b>实时状态</b>
+  <div class="kv"><span>模式</span><span id="stMode">--</span></div>
   <div class="kv"><span>油门</span><span id="stThrottle">--</span></div>
-  <div class="kv"><span>占空比</span><span id="stDuty">--</span></div>
   <div class="kv"><span>舵机</span><span id="stServo">--</span></div>
-  <div class="kv"><span>急停</span><span id="stKill">--</span></div>
+  <div class="kv"><span>升降</span><span id="stLift">--</span></div>
+  <div class="kv"><span>状态</span><span id="stKill">--</span></div>
   <div class="kv"><span>收到字节</span><span id="stCnt">--</span></div>
+  <div class="kv"><span>PPM CH1</span><span id="stPpm1">--</span></div>
+  <div class="kv"><span>PPM CH2</span><span id="stPpm2">--</span></div>
+  <div class="kv"><span>PPM CH3</span><span id="stPpm3">--</span></div>
+  <div style="color:#888;font-size:12px;">PPM 单位 µs（蝴蝶链路回读，定标 595~1595）</div>
 </div>
 
 <div class="card">
@@ -110,12 +116,13 @@ async function sendCmd(cmd, data) {
   log(`发送 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
 }
 
-/* 滑条节流：150ms 只发一次最新值，拖动再快也不积压 */
-let pendingDuty = null, pendingServo = null;
+/* 滑条节流：50ms 只发一次最新值，拖动再快也不积压 */
+let pendingDuty = null, pendingServo = null, pendingLift = null;
 setInterval(() => {
   if (pendingDuty !== null) { const v = pendingDuty; pendingDuty = null; sendCmd(0x01, [v]); }
   if (pendingServo !== null) { const v = pendingServo; pendingServo = null; sendCmd(0x02, [v]); }
-}, 150);
+  if (pendingLift !== null) { const v = pendingLift; pendingLift = null; sendCmd(0x04, [v]); }
+}, 50);
 
 function onNotify(ev) {
   const dv = ev.target.value;
@@ -140,12 +147,29 @@ function onNotify(ev) {
     const frame = rxBuf.slice(0, 4 + ln + 1);
     rxBuf = rxBuf.slice(4 + ln + 1);
     if (ck !== frame[4 + ln]) { log("校验失败 0x" + cmd.toString(16)); continue; }
-    if (cmd === 0x81 && data.length >= 5) {
+    if (cmd === 0x81 && data.length >= 11) {
+      /* 蝴蝶链路新格式: [油门,舵机,升降,状态,rxCnt, CH1H,CH1L, CH2H,CH2L, CH3H,CH3L] */
+      document.getElementById("stMode").textContent = "蝴蝶▶i6X";
       document.getElementById("stThrottle").textContent = data[0];
-      document.getElementById("stDuty").textContent = data[1];
+      document.getElementById("stServo").textContent = data[1];
+      document.getElementById("stLift").textContent = data[2];
+      const stMap = {0:"急停", 1:"扑动", 2:"待机"};
+      document.getElementById("stKill").textContent = stMap[data[3]] || ("?" + data[3]);
+      document.getElementById("stCnt").textContent = data[4];
+      document.getElementById("stPpm1").textContent = (data[5]<<8) | data[6];
+      document.getElementById("stPpm2").textContent = (data[7]<<8) | data[8];
+      document.getElementById("stPpm3").textContent = (data[9]<<8) | data[10];
+    } else if (cmd === 0x81 && data.length >= 5) {
+      /* STM32 旧格式: [油门,占空比,舵机,急停,rxCnt] */
+      document.getElementById("stMode").textContent = "STM32直控";
+      document.getElementById("stThrottle").textContent = data[0];
       document.getElementById("stServo").textContent = data[2];
+      document.getElementById("stLift").textContent = "--";
       document.getElementById("stKill").textContent = data[3] ? "停止" : "运行";
       document.getElementById("stCnt").textContent = data[4];
+      document.getElementById("stPpm1").textContent = "--";
+      document.getElementById("stPpm2").textContent = "--";
+      document.getElementById("stPpm3").textContent = "--";
     } else {
       log(`收到 0x${cmd.toString(16).padStart(2,'0')} 数据=[${data}]`);
     }
@@ -161,6 +185,10 @@ document.getElementById("sldDuty").oninput = e => {
 document.getElementById("sldServo").oninput = e => {
   document.getElementById("valServo").textContent = e.target.value;
   pendingServo = parseInt(e.target.value);
+};
+document.getElementById("sldLift").oninput = e => {
+  document.getElementById("valLift").textContent = e.target.value;
+  pendingLift = parseInt(e.target.value);
 };
 document.getElementById("chkKill").onchange = e => sendCmd(0x03, [e.target.checked ? 1 : 0]);
 document.getElementById("btnQuery").onclick = () => sendCmd(0x10, []);
