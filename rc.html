@@ -113,19 +113,16 @@ function buildFrame(cmd, data){
    ⚠ 并发写会抛 "GATT operation already in progress"，
      必须用 Promise 链把写操作排队。 */
 let writeChain = Promise.resolve();
-let useNoResp = true;               // 先试无响应写（时延低），失败则永久回退
-let noRespDecided = false;
+/* ⚠⚠ 必须用"带响应写" ch.writeValue()，不能用 writeValueWithoutResponse。
+   本模块 FFE1 的属性是 [write, notify]，**不含 write-without-response**。
+   而某些浏览器（iPhone 上的 Bluefy / WebBLE 等）调用
+   writeValueWithoutResponse 时**既不抛错、也不真正把数据发出去** →
+   日志显示"已发送"，飞控却一个字节都收不到。
+   实测症状：手机端拖滑条日志满屏，而飞控回传 rx=46 冻结、pcT=0、src=NONE。
+   （旧版能用就是因为它用的 writeValue。） */
 function enqueueWrite(frame, tag){
   writeChain = writeChain.then(function(){
     if (!ch) throw new Error('未连接');
-    if (useNoResp) {
-      return ch.writeValueWithoutResponse(frame).catch(function(e){
-        if (noRespDecided) throw e;
-        useNoResp = false; noRespDecided = true;
-        log('写类型：本机不支持无响应写 → 改用带响应写');
-        return ch.writeValue(frame);
-      });
-    }
     return ch.writeValue(frame);
   }).then(function(){
     nTx++;
@@ -211,6 +208,10 @@ function disconnect(){
 /* ---------- 接收 ---------- */
 let txtBuf = '';
 let fc = {};
+/* 发送有效性自检：飞控回传的 rx 计数必须随我们发送而增长。
+   若发了十几帧它仍纹丝不动，说明字节没进飞控（线/写类型问题）。
+   这个检查就是为了自动抓住"日志显示已发送、飞控却没收到"这类故障。 */
+let rxBase = null, txBase = 0, rxOk = false;
 const FC_KEYS = ['src','ppm','tk','pcT','ch3','fly','dct','rx','bad','lb'];
 function onNotify(ev){
   const dv = ev.target.value;
@@ -236,6 +237,14 @@ function handleLine(line){
     const first = !Object.keys(fc).length;
     const oldBd = fc.bd;
     Object.assign(fc, d);
+    // —— 发送有效性自检 ——
+    if (fc.rx !== undefined){
+      if (rxBase === null){ rxBase = +fc.rx; txBase = nTx; }
+      else if (!rxOk && +fc.rx > rxBase){
+        rxOk = true;
+        log('✓ 飞控已收到我们发的字节（rx ' + rxBase + ' → ' + fc.rx + '）');
+      }
+    }
     if (first) log('← 飞控回传已同步，开始解析状态行');
     else if (d.bd !== undefined && d.bd !== oldBd) log('← 飞控: ' + line.slice(0, 64));
     else if ((nRx & 7) === 0) log('← ' + line.slice(0, 64));     // 抽样回显，保留日志输出
