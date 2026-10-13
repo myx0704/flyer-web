@@ -2,47 +2,54 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>扑翼机 · 蓝牙遥控（手机版）</title>
 <style>
-  :root{ --bg:#111418; --fg:#e6edf3; --dim:#8b949e; --acc:#2f81f7; --warn:#d29922; --bad:#f85149; --ok:#3fb950; }
+  :root{ --bg:#0d1117; --fg:#e6edf3; --dim:#8b949e; --acc:#2f81f7; --warn:#d29922;
+         --bad:#f85149; --ok:#3fb950; --card:#161b22; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body{ margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding:10px 12px 24px; }
-  h1{ font-size:16px; margin:2px 0 8px; font-weight:600; }
+  html,body{ margin:0; }
+  body{ background:var(--bg); color:var(--fg); padding:10px 12px 28px;
+        font-family:-apple-system,BlinkMacSystemFont,system-ui,"PingFang SC","Microsoft YaHei",sans-serif; }
+  h1{ font-size:16px; margin:4px 0 10px; font-weight:600; }
   .row{ display:flex; gap:8px; margin-bottom:8px; }
-  button{ flex:1; padding:14px 8px; font-size:15px; font-weight:600; border:0; border-radius:10px;
-          background:#21262d; color:var(--fg); }
-  button:active{ transform:scale(0.97); }
+  button{ flex:1; padding:15px 8px; font-size:16px; font-weight:600; border:0; border-radius:10px;
+          background:#21262d; color:var(--fg); font-family:inherit; }
+  button:active{ transform:scale(.97); }
   button.pri{ background:var(--acc); color:#fff; }
   button.stop{ background:var(--bad); color:#fff; }
   button.ok{ background:#238636; color:#fff; }
-  button:disabled{ opacity:.4; }
-  .stat{ font-size:12px; color:var(--dim); background:#161b22; border-radius:8px; padding:8px;
-         margin-bottom:10px; line-height:1.6; word-break:break-all; }
-  .stat b{ color:var(--fg); font-weight:600; }
-  .ctl{ background:#161b22; border-radius:12px; padding:10px 12px 6px; margin-bottom:10px; }
-  .ctl .lab{ display:flex; justify-content:space-between; font-size:14px; margin-bottom:2px; }
-  .ctl .val{ font-variant-numeric:tabular-nums; font-weight:700; font-size:18px; }
-  input[type=range]{ -webkit-appearance:none; width:100%; height:38px; background:transparent; margin:0; }
+  button:disabled{ opacity:.35; }
+  .stat{ font-size:12px; color:var(--dim); background:var(--card); border-radius:9px;
+         padding:9px 10px; margin-bottom:10px; line-height:1.65; word-break:break-all; }
+  .stat b{ color:var(--fg); }
+  .ctl{ background:var(--card); border-radius:12px; padding:10px 12px 4px; margin-bottom:9px; }
+  .lab{ display:flex; justify-content:space-between; align-items:baseline; font-size:14px; }
+  .val{ font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; }
+  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:40px;
+                     background:transparent; margin:0; }
   input[type=range]::-webkit-slider-runnable-track{ height:10px; border-radius:5px; background:#30363d; }
-  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:32px; height:32px; margin-top:-11px;
-      border-radius:50%; background:var(--acc); border:3px solid #fff2; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:34px; height:34px;
+      margin-top:-12px; border-radius:50%; background:var(--acc); border:3px solid rgba(255,255,255,.15); }
   input[type=range].thr::-webkit-slider-thumb{ background:var(--warn); }
-  .hint{ font-size:11px; color:var(--dim); margin:2px 0 8px; line-height:1.5; }
-  #log{ height:150px; overflow-y:auto; font-family:ui-monospace,Consolas,monospace; font-size:11px;
-        background:#0d1117; border-radius:8px; padding:8px; white-space:pre-wrap; word-break:break-all; }
-  .k{ color:var(--dim); }
+  .hint{ font-size:11.5px; color:var(--dim); line-height:1.6; margin:4px 0 10px; }
+  #log{ height:180px; overflow-y:auto; -webkit-overflow-scrolling:touch;
+        font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.5;
+        background:#010409; border-radius:9px; padding:9px; white-space:pre-wrap; word-break:break-all; }
 </style>
 </head>
 <body>
-<h1>扑翼机 · 蓝牙遥控（手机版）</h1>
+<h1>🦅 扑翼机 · 蓝牙遥控</h1>
 
 <div class="row">
-  <button id="btnConn" class="pri">连接 JDY-23</button>
-  <button id="btnStop" class="stop" disabled>急停</button>
+  <button id="btnConnect" class="pri">连接 JDY-23</button>
+  <button id="btnDisconnect" disabled>断开</button>
 </div>
 <div class="row">
+  <button id="btnStop" class="stop" disabled>急停</button>
   <button id="btnCenter" disabled>回中</button>
+</div>
+<div class="row">
   <button id="btnStep" disabled>升降自检</button>
   <button id="btnExitD" disabled>退出直控</button>
 </div>
@@ -68,178 +75,195 @@
 <script>
 "use strict";
 /* ============================================================
-   协议：AA 55 | CMD | LEN | DATA | CK        CK = 全部字节异或
+   协议：AA 55 | CMD | LEN | DATA | CK     CK = 全部字节异或
      0x01 油门 0~100   0x02 差速 0~100   0x04 升降 0~100
      0x03 急停 0/1     0x30 退出直控
-   与飞控 flyer_fw 完全一致（和桌面版同一个 build_frame）
+   与飞控 flyer_fw / 桌面版完全一致
    ============================================================ */
-const SVC = 0x0000ffe0, CH = 0x0000ffe1;   // JDY-23 手册 §6.1
-const UUID = n => ('0000' + n.toString(16).padStart(4,'0') + '-0000-1000-8000-00805f9b34fb');
-const FLY_MIN = 45;                        // 油门阈值（CH3=680+9.25T，启动阈值 1095）
+const FFE0 = "0000ffe0-0000-1000-8000-00805f9b34fb";
+const FFE1 = "0000ffe1-0000-1000-8000-00805f9b34fb";
+const FLY_MIN = 45;                 // CH3 = 680+9.25T，启动阈值 CH3>1095
 
-function frame(cmd, data){
-  const body = [0xAA, 0x55, cmd, data.length, ...data];
-  let ck = 0; for (const b of body) ck ^= b;
-  return new Uint8Array([...body, ck]);
-}
-const hex = b => [...b].map(x => x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
-const NAMES = {1:'油门',2:'差速',3:'急停',4:'升降',5:'交还电脑',0x30:'退出直控'};
+let device = null, ch = null, connected = false;
+let nTx = 0, nRx = 0, nBad = 0;
+let wakeLock = null;
+let vals = { thr:0, str:50, lif:50 };
+let pending = {};                   // 滑条节流：只保留最新值
+let hbIdx = 0, lastHb = 0;
 
 const $ = id => document.getElementById(id);
-let dev = null, ch = null, connected = false;
-let vals = { thr:0, str:50, lif:50 };
-let sent = { thr:null, str:null, lif:null };
-let hbIdx = 0, nTx = 0, nRx = 0, nBad = 0, lastHb = 0, lastFc = '';
-let writeMode = null;           // null=未定；true=带响应；false=无响应
-let wakeLock = null;
+const hex = b => [...b].map(x => x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
 
 function log(s){
-  const el = $('log');
-  const t = new Date().toTimeString().slice(0,8);
-  el.textContent += `[${t}] ${s}\n`;
-  if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-12000);
-  el.scrollTop = el.scrollHeight;
+  const d = $('log'), t = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  d.textContent += '[' + t + '] ' + s + '\n';
+  if (d.textContent.length > 24000) d.textContent = d.textContent.slice(-14000);
+  d.scrollTop = d.scrollHeight;
 }
-function setStat(s){ $('stat').innerHTML = s; }
+function setStat(html){ $('stat').innerHTML = html; }
 
-/* ---------------- 连接 ---------------- */
+function buildFrame(cmd, data){
+  data = data || [];
+  const body = [0xAA, 0x55, cmd, data.length].concat(data);
+  let ck = 0; for (const b of body) ck ^= b;
+  return new Uint8Array(body.concat([ck]));
+}
+
+/* ---------- 写操作串行化（照抄旧版经验）----------
+   ⚠ 并发写会抛 "GATT operation already in progress"，
+     必须用 Promise 链把写操作排队。 */
+let writeChain = Promise.resolve();
+let useNoResp = true;               // 先试无响应写（时延低），失败则永久回退
+let noRespDecided = false;
+function enqueueWrite(frame, tag){
+  writeChain = writeChain.then(function(){
+    if (!ch) throw new Error('未连接');
+    if (useNoResp) {
+      return ch.writeValueWithoutResponse(frame).catch(function(e){
+        if (noRespDecided) throw e;
+        useNoResp = false; noRespDecided = true;
+        log('写类型：本机不支持无响应写 → 改用带响应写');
+        return ch.writeValue(frame);
+      });
+    }
+    return ch.writeValue(frame);
+  }).then(function(){
+    nTx++;
+    if (tag) log('→ ' + hex(frame) + '   ' + tag);
+  }).catch(function(e){ log('发送失败: ' + e.message); });
+}
+
+/* 滑条节流 50ms 合并 + 每 300ms 轮询单通道保活（飞控 1s 超时） */
+setInterval(function(){
+  if (!connected) return;
+  const now = Date.now();
+  ['thr','str','lif'].forEach(function(k){
+    if (pending[k] !== undefined) {
+      const v = pending[k]; pending[k] = undefined;
+      const cmd = k === 'thr' ? 0x01 : (k === 'str' ? 0x02 : 0x04);
+      enqueueWrite(buildFrame(cmd, [v]), k + '=' + v);
+    }
+  });
+  if (now - lastHb > 300) {
+    lastHb = now; hbIdx = (hbIdx + 1) % 3;
+    const k = ['thr','str','lif'][hbIdx];
+    const cmd = k === 'thr' ? 0x01 : (k === 'str' ? 0x02 : 0x04);
+    enqueueWrite(buildFrame(cmd, [Math.round(vals[k])]), null);   // 保活不刷日志
+  }
+}, 50);
+setInterval(function(){ if (connected) renderStat(); }, 250);
+
+/* ---------- 连接 ----------
+   ⚠ 用 acceptAllDevices:true（与能用的旧版一致）。
+     iOS 上的第三方 Web Bluetooth 浏览器（Bluefy / WebBLE 等）通常
+     不支持 namePrefix / services 过滤器 —— 用了它们会「点了没反应」。 */
 async function connect(){
   if (!navigator.bluetooth){
     log('❌ 此浏览器不支持 Web Bluetooth');
-    log('   Android 请用 Chrome/Edge；iOS Safari 不支持（这是系统限制）');
+    log('   Android：请用 Chrome / Edge');
+    log('   iPhone/iPad：系统 Safari 与 Chrome 都不支持，需安装 Bluefy 或 WebBLE');
     return;
   }
+  log('正在请求设备…（弹出的列表里选 JDY-23）');
   try{
-    log('请求设备…（选名字含 JDY 的那个）');
-    dev = await navigator.bluetooth.requestDevice({
-      filters:[{ namePrefix:'JDY' }, { services:[SVC] }],
-      optionalServices:[SVC]
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [FFE0]
     });
-    dev.addEventListener('gattserverdisconnected', onDisconnected);
+    log('已选择设备：' + (device.name || '(无名)'));
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
     log('连接 GATT…');
-    const server = await dev.gatt.connect();
-    const svc = await server.getPrimaryService(SVC);
-    ch = await svc.getCharacteristic(CH);
-    ch.addEventListener('characteristicvaluechanged', onNotify);
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(FFE0);
+    ch = await service.getCharacteristic(FFE1);
     await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', onNotify);
     connected = true;
-    log(`已连接 ${dev.name || ''}，FFE1 通知已开启`);
-    // 连接归一化：退直控 → 清急停 → 油门0
-    await send(0x30, []); await send(0x03, [0]); await send(0x01, [0]);
-    log('已发 退出直控 / 清急停 / 油门0');
-    vals.thr = 0; vals.str = 50; vals.lif = 50;
-    sent = { thr:null, str:null, lif:null };
+    log('✓ FFE1 通知已开启');
+    // 连接归一化：退出直控 → 清急停 → 油门 0
+    enqueueWrite(buildFrame(0x30, []), '退出直控');
+    enqueueWrite(buildFrame(0x03, [0]), '清急停');
+    enqueueWrite(buildFrame(0x01, [0]), '油门0');
+    vals = { thr:0, str:50, lif:50 };
     $('thr').value = 0; $('str').value = 50; $('lif').value = 50; syncLabels();
-    for (const b of ['btnStop','btnCenter','btnStep','btnExitD']) $(b).disabled = false;
-    $('btnConn').textContent = '断开';
-    try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
+    ['btnDisconnect','btnStop','btnCenter','btnStep','btnExitD'].forEach(function(b){ $(b).disabled = false; });
+    $('btnConnect').disabled = true;
+    try { wakeLock = await navigator.wakeLock.request('screen'); log('屏幕常亮已开启'); }
+    catch(e){ log('（屏幕常亮不可用，不影响遥控）'); }
   }catch(e){
-    log('连接失败：' + e.message);
-    if (String(e.message).includes('permission') || String(e.name).includes('Security'))
-      log('提示：Web Bluetooth 需要安全上下文（https 或 localhost）');
+    log('连接失败: ' + (e && e.message ? e.message : e));
+    if (e && e.name === 'NotFoundError') log('（没有选择设备，或列表为空）');
   }
 }
 function onDisconnected(){
   connected = false; ch = null;
   log('⚠ 蓝牙已断开');
-  $('btnConn').textContent = '连接 JDY-23';
-  for (const b of ['btnStop','btnCenter','btnStep','btnExitD']) $(b).disabled = true;
-  if (wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+  $('btnConnect').disabled = false;
+  ['btnDisconnect','btnStop','btnCenter','btnStep','btnExitD'].forEach(function(b){ $(b).disabled = true; });
+  if (wakeLock) { try { wakeLock.release(); } catch(e){} wakeLock = null; }
 }
 function disconnect(){
-  if (dev && dev.gatt.connected) dev.gatt.disconnect();
+  if (device && device.gatt.connected) device.gatt.disconnect();
   else onDisconnected();
 }
 
-/* ---------------- 发送 ---------------- */
-async function send(cmd, data, quiet){
-  if (!connected || !ch) return false;
-  const f = frame(cmd, data);
-  try{
-    if (writeMode !== true) {                    // 优先"无响应写"，时延最低
-      try { await ch.writeValueWithoutResponse(f); writeMode = false; }
-      catch(e){
-        if (writeMode === false) throw e;
-        await ch.writeValue(f); writeMode = true;   // 回退到带响应写
-        log('写类型：带响应（模块只支持这种）');
-      }
-    } else { await ch.writeValue(f); }
-    nTx++;
-    if (!quiet) log(`→ ${hex(f)}   ${NAMES[cmd] || ('0x'+cmd.toString(16))}=[${data}]`);
-    return true;
-  }catch(e){
-    log('发送失败：' + e.message);
-    return false;
-  }
-}
-/* 变化即发；无变化则每 300ms 轮询单通道保活（飞控 1s 超时） */
-function tick(){
-  if (!connected) return;
-  const now = performance.now();
-  const t = Math.round(vals.thr), s = Math.round(vals.str), l = Math.round(vals.lif);
-  if (sent.thr !== t){ send(0x01,[t],true); sent.thr = t; }
-  if (sent.str !== s){ send(0x02,[s],true); sent.str = s; }
-  if (sent.lif !== l){ send(0x04,[l],true); sent.lif = l; }
-  if (now - lastHb > 300){
-    lastHb = now; hbIdx = (hbIdx + 1) % 3;
-    const c = [[0x01,t],[0x02,s],[0x04,l]][hbIdx];
-    send(c[0], [c[1]], true);
-  }
-}
-setInterval(tick, 40);
-setInterval(()=>{ if (connected) renderStat(); }, 200);
-
-/* ---------------- 接收（解析飞控调试文本） ---------------- */
+/* ---------- 接收 ---------- */
 let txtBuf = '';
+let fc = {};
+const FC_KEYS = ['src','ppm','tk','pcT','ch3','fly','dct','rx','bad','lb'];
 function onNotify(ev){
-  const v = ev.target.value;                    // DataView
-  const bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  const dv = ev.target.value;
+  const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
   nRx += bytes.length;
-  for (const b of bytes) txtBuf += String.fromCharCode(b);
+  for (let i = 0; i < bytes.length; i++) txtBuf += String.fromCharCode(bytes[i]);
   let i;
   while ((i = txtBuf.indexOf('\n')) >= 0){
-    const line = txtBuf.slice(0, i).replace(/\r/g,'').trim();
+    const line = txtBuf.slice(0, i).replace(/\r/g, '').trim();
     txtBuf = txtBuf.slice(i + 1);
     if (line) handleLine(line);
   }
   if (txtBuf.length > 400) txtBuf = txtBuf.slice(-200);
   renderStat();
 }
-const FC_KEYS = ['src','ppm','tk','pcT','ch3','fly','dct','rx','bad','lb'];
-let fc = {};
 function handleLine(line){
   const d = {};
   for (const tok of line.split(/\s+/)){
-    const k = tok.split('=');
-    if (k.length === 2 && FC_KEYS.includes(k[0])) d[k[0]] = k[1];
+    const kv = tok.split('=');
+    if (kv.length === 2 && FC_KEYS.indexOf(kv[0]) >= 0) d[kv[0]] = kv[1];
   }
   if (Object.keys(d).length && (d.src || d.rx)){
     const first = !Object.keys(fc).length;
+    const oldBd = fc.bd;
     Object.assign(fc, d);
     if (first) log('← 飞控回传已同步，开始解析状态行');
-    else if (Math.random() < 0.35) log('← ' + line.slice(0,64));   // 抽样显示，避免刷屏
+    else if (d.bd !== undefined && d.bd !== oldBd) log('← 飞控: ' + line.slice(0, 64));
+    else if ((nRx & 7) === 0) log('← ' + line.slice(0, 64));     // 抽样回显，保留日志输出
   } else {
     nBad++;
-    if (nBad <= 3) log('← 乱码: ' + line.slice(0,40));
+    if (nBad <= 3) log('← 乱码: ' + line.slice(0, 40));
   }
 }
 function renderStat(){
   const yn = k => fc[k] === '1' ? 'ON' : 'off';
-  let s = connected
-    ? `已连接 <b>${dev && dev.name ? dev.name : ''}</b>｜发送 <b>${nTx}</b> 帧｜接收 <b>${nRx}</b> 字节` +
-      (nBad ? `｜乱码 ${nBad}` : '')
-    : '未连接';
-  if (connected && fc.src)
-    s += `<br>飞控: 源=<b>${fc.src}</b> 遥控=${fc.ppm==='1'?'有效':'无'} 接管锁=${yn('tk')}` +
-         ` 收到油门=<b>${fc.pcT}</b> CH3=${fc.ch3} 扑动=<b>${yn('fly')}</b> 直控=${yn('dct')}`;
-  else if (connected && nRx > 0)
-    s += `<br>收到 ${nRx} 字节但还不是状态行（波特率/固件调试输出未开？）`;
-  else if (connected)
-    s += '<br>尚未收到飞控回传（固件 DEBUG_SERIAL 是否=1？）';
+  let s;
+  if (!connected) s = '未连接';
+  else {
+    s = '已连接 <b>' + (device && device.name ? device.name : '') + '</b>｜发送 <b>' + nTx +
+        '</b> 帧｜接收 <b>' + nRx + '</b> 字节' + (nBad ? '｜乱码 ' + nBad : '');
+    if (fc.src)
+      s += '<br>飞控: 源=<b>' + fc.src + '</b> 遥控=' + (fc.ppm === '1' ? '有效' : '无') +
+           ' 接管锁=' + yn('tk') + ' 收到油门=<b>' + fc.pcT + '</b> CH3=' + fc.ch3 +
+           ' 扑动=<b>' + yn('fly') + '</b> 直控=' + yn('dct');
+    else if (nRx > 0)
+      s += '<br>已收到 ' + nRx + ' 字节，但还没解析出状态行（固件 DEBUG_SERIAL 是否为 1？波特率是否 9600？）';
+    else
+      s += '<br>尚未收到飞控回传（固件 DEBUG_SERIAL=1 才会有）';
+  }
   setStat(s);
 }
 
-/* ---------------- UI ---------------- */
+/* ---------- UI ---------- */
 function syncLabels(){
   $('vThr').textContent = Math.round(vals.thr);
   $('vStr').textContent = Math.round(vals.str);
@@ -247,47 +271,52 @@ function syncLabels(){
 }
 function bindSlider(id, key){
   const el = $(id);
-  const upd = () => { vals[key] = +el.value; syncLabels(); };
+  const upd = function(){ vals[key] = +el.value; pending[key] = Math.round(vals[key]); syncLabels(); };
   el.addEventListener('input', upd);
   el.addEventListener('change', upd);
 }
 bindSlider('thr','thr'); bindSlider('str','str'); bindSlider('lif','lif');
 
-$('btnConn').onclick = () => connected ? disconnect() : connect();
-$('btnStop').onclick = async () => {
-  vals.thr = 0; $('thr').value = 0; syncLabels();
-  await send(0x03,[1]); await send(0x01,[0]); sent.thr = 0;
-  log('⚠ 急停');
+$('btnConnect').onclick = connect;
+$('btnDisconnect').onclick = disconnect;
+$('btnStop').onclick = function(){
+  vals.thr = 0; $('thr').value = 0; pending.thr = 0; syncLabels();
+  enqueueWrite(buildFrame(0x03, [1]), '急停');
+  enqueueWrite(buildFrame(0x01, [0]), '油门0');
+  log('⚠ 已急停');
 };
-$('btnCenter').onclick = async () => {
-  vals.str = 50; vals.lif = 50; $('str').value = 50; $('lif').value = 50; syncLabels();
-  await send(0x03,[0]); await send(0x02,[50]); await send(0x04,[50]);
-  sent.str = 50; sent.lif = 50;
-  log('已回中并清急停');
+$('btnCenter').onclick = function(){
+  vals.str = 50; vals.lif = 50;
+  $('str').value = 50; $('lif').value = 50;
+  pending.str = 50; pending.lif = 50; syncLabels();
+  enqueueWrite(buildFrame(0x03, [0]), '清急停');
+  log('已回中');
 };
-$('btnStep').onclick = async () => {
-  log('升降阶跃：50 → 100（保持 2s）→ 50，注意看舵机臂');
-  vals.lif = 100; $('lif').value = 100; syncLabels(); await send(0x04,[100]);
-  setTimeout(async () => {
-    vals.lif = 50; $('lif').value = 50; syncLabels(); await send(0x04,[50]);
+$('btnStep').onclick = function(){
+  log('升降阶跃：50 → 100（保持 2 秒）→ 50，看舵机臂');
+  vals.lif = 100; $('lif').value = 100; pending.lif = 100; syncLabels();
+  setTimeout(function(){
+    vals.lif = 50; $('lif').value = 50; pending.lif = 50; syncLabels();
     log('阶跃结束');
   }, 2000);
 };
-$('btnExitD').onclick = async () => { await send(0x30,[]); log('已发 0x30 退出直控'); };
+$('btnExitD').onclick = function(){ enqueueWrite(buildFrame(0x30, []), '退出直控'); };
 
 (function initHint(){
-  const ua = navigator.userAgent;
-  const ios = /iPad|iPhone|iPod/.test(ua);
+  const ua = navigator.userAgent || '';
+  const ios = /iPad|iPhone|iPod/.test(ua) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   let h = '';
   if (!navigator.bluetooth)
-    h += '⚠ 此浏览器不支持 Web Bluetooth。Android 请用 <b>Chrome</b>；iOS 系统不支持（Safari/Chrome 都不行）。<br>';
-  if (ios) h += '⚠ 检测到 iOS：系统不提供 Web Bluetooth，这个网页在 iPhone 上用不了。<br>';
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost')
-    h += '⚠ 当前不是安全上下文（Web Bluetooth 要求 https 或 localhost）。<br>' +
-         '　 手机上可访问 PC 起的本地服务 + 在 Chrome 打开 ' +
-         '<code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> 把本站加入白名单。<br>';
-  h += '用法：连接 → 拖油门到 <b>≥45</b> 才会扑动；差速 A/D 转向，升降控制俯仰。';
+    h += ios
+      ? '⚠ iPhone/iPad：系统 Safari 和 Chrome 都不支持 Web Bluetooth，需要装 <b>Bluefy</b> 或 <b>WebBLE</b> 这类浏览器再打开本页。<br>'
+      : '⚠ 此浏览器不支持 Web Bluetooth，请用 Chrome / Edge。<br>';
+  h += '用法：连接 → 列表里选 JDY-23 → 油门拖到 <b>≥45</b> 才扑动；差速转向、升降控俯仰。<br>' +
+       '状态栏的 <b>收到油门=</b> 是飞控实际收到的值，跟着滑条变就说明指令到位了。';
   $('hint').innerHTML = h;
+  log('页面加载完成，点【连接 JDY-23】开始');
+  log(navigator.bluetooth ? '本浏览器支持 Web Bluetooth ✓'
+                          : '本浏览器不支持 Web Bluetooth（iPhone 需用 Bluefy/WebBLE）');
 })();
 </script>
 </body>
